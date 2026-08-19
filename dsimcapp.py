@@ -180,20 +180,28 @@ SYSTEM_INSTRUCTION = """
 # ============================================================
 
 
-from streamlit_back_camera_input import back_camera_input
+img = None
 
-# สลับการใช้งานตามเงื่อนไขเดิม
 if method == "ถ่ายรูปจากกล้อง":
-    # เรียกใช้ตัวนี้แทน st.camera_input (จะล็อกกล้องหลังอัตโนมัติ)
-    img = back_camera_input()
-elif method == "อัปโหลดไฟล์รูปภาพ":
-    img = st.file_uploader("เลือกรูป")
-else:
-    img = None
+    # สคริปต์ช่วยเรียกร้องสิทธิ์กล้องหลังบนมือถือ
+    st.components.v1.html(
+        """
+        <script>
+        navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: "environment" } } });
+        </script>
+        """,
+        height=0,
+    )
+    img = st.camera_input("ถ่ายรูป")
 
-# แสดงผลรูปที่ถ่ายได้
-if img:
-    st.image(img)
+elif method == "อัปโหลดไฟล์รูปภาพ":
+    uploaded_file = st.file_uploader("เลือกรูป")
+    if uploaded_file is not None:
+        img = uploaded_file
+
+# แก้ไขจุดนี้: เปลี่ยนจาก if img: เป็น if img is not None:
+if img is not None:
+    st.image(img, caption="รูปภาพของคุณ")
 
 if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
     with st.spinner("AI กำลังแกะ..."):
