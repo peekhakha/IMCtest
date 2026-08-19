@@ -3,4 +3,4 @@ pandas
 supabase
 google-genai
 pillow
-
+streamlit_back_camera_input
