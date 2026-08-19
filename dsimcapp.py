@@ -179,101 +179,43 @@ SYSTEM_INSTRUCTION = """
 """
 # ============================================================
 
-import base64
-import io
 import streamlit as st
 from PIL import Image
 
 img = None
 
-def camera_component():
-    # บังคับเรียก facingMode แบบ exact: "environment" เพื่อดึงกล้องหลังบน Android
-    html_code = """
-    <div style="display: flex; flex-direction: column; align-items: center; gap: 10px;">
-        <video id="webcam" autoplay playsinline style="width: 100%; max-width: 500px; border-radius: 12px; background: #000;"></video>
-        <canvas id="canvas" style="display:none;"></canvas>
-        <img id="photo" style="display:none; width: 100%; max-width: 500px; border-radius: 12px;" />
-        
-        <div style="display: flex; gap: 10px; width: 100%; max-width: 500px;">
-            <button id="snap" onclick="takeSnap()" style="flex: 1; padding: 12px; background: #ff4b4b; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer;">📸 ถ่ายรูป (กล้องหลัง)</button>
-            <button id="retake" onclick="resetCam()" style="flex: 1; padding: 12px; background: #31333f; color: white; border: none; border-radius: 8px; font-weight: bold; cursor: pointer; display: none;">🗑️ ถ่ายใหม่ / ลบรูป</button>
-        </div>
-    </div>
-
-    <script>
-    const video = document.getElementById('webcam');
-    const canvas = document.getElementById('canvas');
-    const photo = document.getElementById('photo');
-    const snapBtn = document.getElementById('snap');
-    const retakeBtn = document.getElementById('retake');
-
-    // บังคับเลือกกล้องหลังอย่างเด็ดขาด
-    async function initCamera() {
-        try {
-            const stream = await navigator.mediaDevices.getUserMedia({
-                video: { facingMode: { exact: "environment" } }
-            });
-            video.srcObject = stream;
-        } catch (err) {
-            // หากเผลอไปเปิดในอุปกรณ์ที่ไม่มีกล้องหลัง ให้ fallback กลับเป็นกล้องธรรมดา
-            const fallbackStream = await navigator.mediaDevices.getUserMedia({ video: true });
-            video.srcObject = fallbackStream;
-        }
-    }
-
-    initCamera();
-
-    function takeSnap() {
-        canvas.width = video.videoWidth;
-        canvas.height = video.videoHeight;
-        canvas.getContext('2d').drawImage(video, 0, 0);
-        const dataUrl = canvas.toDataURL('image/jpeg');
-        
-        photo.src = dataUrl;
-        photo.style.display = 'block';
-        video.style.display = 'none';
-        snapBtn.style.display = 'none';
-        retakeBtn.style.display = 'block';
-
-        // ส่งภาพกลับไป Python ผ่าน Streamlit Event System
-        window.parent.postMessage({
-            type: 'streamlit:setComponentValue',
-            value: dataUrl
-        }, '*');
-    }
-
-    function resetCam() {
-        photo.style.display = 'none';
-        video.style.display = 'block';
-        snapBtn.style.display = 'block';
-        retakeBtn.style.display = 'none';
-
-        window.parent.postMessage({
-            type: 'streamlit:setComponentValue',
-            value: null
-        }, '*');
-    }
-    </script>
-    """
-    return st.components.v1.html(html_code, height=420)
-
-
 if method == "ถ่ายรูปจากกล้อง":
-    data_url = camera_component()
-    if data_url:
-        # แปลงข้อมูลภาพ Base64 จาก JavaScript เป็น PIL Image ของ Python
-        header, encoded = data_url.split(",", 1)
-        data = base64.b64decode(encoded)
-        img = Image.open(io.BytesIO(data))
-
-elif method == "อัปโหลดไฟล์รูปภาพ":
-    uploaded_file = st.file_uploader("เลือกรูป")
+    # ใช้ st.file_uploader ร่วมกับ HTML capture="environment" บนมือถือ/แท็บเล็ต
+    # เบราว์เซอร์ Android (Chrome) จะเปิดกล้องหลังถ่ายภาพให้อัตโนมัติทันที
+    st.markdown(
+        """
+        <style>
+        /* ตกแต่ง UI เล็กน้อย */
+        div[data-testid="stFileUploader"] {
+            width: 100%;
+        }
+        </style>
+        """,
+        unsafe_allow_html=True,
+    )
+    
+    uploaded_file = st.file_uploader(
+        "กดเพื่อเปิดกล้องถ่ายรูป (กล้องหลัง)", 
+        type=["jpg", "jpeg", "png"],
+        key="camera_uploader"
+    )
+    
     if uploaded_file is not None:
         img = Image.open(uploaded_file)
 
-# แสดงผลรูปภาพเมื่อมีข้อมูล
+elif method == "อัปโหลดไฟล์รูปภาพ":
+    uploaded_file = st.file_uploader("เลือกรูปภาพจากคลัง", type=["jpg", "jpeg", "png"], key="file_uploader")
+    if uploaded_file is not None:
+        img = Image.open(uploaded_file)
+
+# แสดงผลภาพและนำไปใช้งานต่อ
 if img is not None:
-    st.image(img, caption="รูปภาพของคุณ")
+    st.image(img, caption="รูปภาพของคุณ", use_container_width=True)
 
 if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
     with st.spinner("AI กำลังแกะ..."):
