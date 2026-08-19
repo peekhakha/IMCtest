@@ -7,6 +7,7 @@ from google import genai
 from PIL import Image
 from pydantic import BaseModel, Field
 import streamlit as st
+import streamlit.components.v1 as components  # ✅ ต้องมี import นี้
 from supabase import create_client
 
 st.set_page_config(page_title="IMC System", layout="wide")
@@ -35,6 +36,8 @@ st.title("🏥 ระบบนำเข้าข้อมูลผู้ป่�
 URL = st.secrets["supabase"]["url"]
 KEY = st.secrets["supabase"]["key"]
 GEMINI_KEY = st.secrets["google"]["api_key"]
+
+# ... โค้ดที่เหลือทั้งหมดเหมือนเดิม ...
 
 client = genai.Client(api_key=GEMINI_KEY)
 db = create_client(URL, KEY)
@@ -179,44 +182,50 @@ SYSTEM_INSTRUCTION = """
 """
 # ============================================================
 
-import streamlit as st
 from PIL import Image
+import streamlit as st
 
 img = None
 
 if method == "ถ่ายรูปจากกล้อง":
-    # ใช้ st.file_uploader ร่วมกับ HTML capture="environment" บนมือถือ/แท็บเล็ต
-    # เบราว์เซอร์ Android (Chrome) จะเปิดกล้องหลังถ่ายภาพให้อัตโนมัติทันที
-    st.markdown(
-        """
-        <style>
-        /* ตกแต่ง UI เล็กน้อย */
-        div[data-testid="stFileUploader"] {
-            width: 100%;
-        }
-        </style>
+    # 1. ปุ่มสลับกล้องหน้า-หลัง
+    camera_side = st.radio(
+        "เลือกกล้อง:",
+        ["กล้องหลัง (Environment)", "กล้องหน้า (User)"],
+        horizontal=True,
+    )
+
+    facing_mode = (
+        "environment" if "กล้องหลัง" in camera_side else "user"
+    )
+
+    # 2. เรียกใช้สิทธิ์กล้อง
+    st.components.v1.html(
+        f"""
+        <script>
+        navigator.mediaDevices.getUserMedia({{ video: {{ facingMode: {{ ideal: "{facing_mode}" }} }} }});
+        </script>
         """,
-        unsafe_allow_html=True,
+        height=0,
     )
-    
-    uploaded_file = st.file_uploader(
-        "กดเพื่อเปิดกล้องถ่ายรูป (กล้องหลัง)", 
-        type=["jpg", "jpeg", "png"],
-        key="camera_uploader"
-    )
-    
-    if uploaded_file is not None:
-        img = Image.open(uploaded_file)
+
+    # 3. ใช้ st.camera_input แทน camera_component() (จุดที่เคยติด Error)
+    img_file = st.camera_input("กดถ่ายรูป", key=f"cam_{facing_mode}")
+    if img_file is not None:
+        img = Image.open(img_file)
 
 elif method == "อัปโหลดไฟล์รูปภาพ":
-    uploaded_file = st.file_uploader("เลือกรูปภาพจากคลัง", type=["jpg", "jpeg", "png"], key="file_uploader")
+    uploaded_file = st.file_uploader(
+        "เลือกรูปภาพ", type=["jpg", "jpeg", "png"]
+    )
     if uploaded_file is not None:
         img = Image.open(uploaded_file)
 
-# แสดงผลภาพและนำไปใช้งานต่อ
+# ส่วนแสดง Preview และปุ่มส่งให้ AI แกะข้อมูล
 if img is not None:
-    st.image(img, caption="รูปภาพของคุณ", use_container_width=True)
-
+    st.markdown("---")
+    st.image(img, caption="รูปภาพที่เลือก/ถ่าย", use_container_width=True)
+    
 if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
     with st.spinner("AI กำลังแกะ..."):
         pil_img = Image.open(img)
