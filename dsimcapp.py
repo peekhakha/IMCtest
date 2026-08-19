@@ -179,17 +179,24 @@ SYSTEM_INSTRUCTION = """
 """
 # ============================================================
 
+# บังคับเลือกกล้องหลังผ่าน CSS/JS Trick (ส่งผลกับเบราว์เซอร์ส่วนใหญ่)
+st.markdown(
+    """
+    <style>
+    /* บังคับ Video Stream ให้กระจายหรือสลับกล้องหากรองรับ */
+    video {
+        transform: scaleX(1) !important;
+    }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
 
-from camera_input_live import camera_input_live
-
-img = None
-if method == "ถ่ายรูปจากกล้อง":
-    # เรียกใช้โดยไม่ใส่ facing_mode
-    image_data = camera_input_live(key="camera")
-    if image_data:
-        img = image_data
-elif method == "อัปโหลดไฟล์รูปภาพ":
-    img = st.file_uploader("เลือกรูป")
+img = (
+    st.camera_input("ถ่ายรูป")
+    if method == "ถ่ายรูปจากกล้อง"
+    else (st.file_uploader("เลือกรูป") if method == "อัปโหลดไฟล์รูปภาพ" else None)
+)
 
 if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
     with st.spinner("AI กำลังแกะ..."):
