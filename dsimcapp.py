@@ -37,6 +37,241 @@ URL = st.secrets["supabase"]["url"]
 KEY = st.secrets["supabase"]["key"]
 GEMINI_KEY = st.secrets["google"]["api_key"]
 
+# ================== โค้ดกล้องถ่ายรูป (เวอร์ชันแก้ไข deviceId) ==================
+def camera_component():
+    """สร้างกล้องและปุ่มควบคุมแบบ iframe แยก"""
+    
+    camera_html = """
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <meta charset="UTF-8">
+        <style>
+            body {
+                margin: 0;
+                padding: 10px;
+                font-family: Arial, sans-serif;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                background: #f5f5f5;
+            }
+            video {
+                width: 100%;
+                max-width: 400px;
+                max-height: 280px;
+                border-radius: 10px;
+                border: 2px solid #ccc;
+                background: #000;
+                object-fit: cover;
+            }
+            .btn-group {
+                display: flex;
+                gap: 8px;
+                flex-wrap: wrap;
+                justify-content: center;
+                margin-top: 10px;
+            }
+            .btn-group button {
+                padding: 8px 16px;
+                border: none;
+                border-radius: 6px;
+                cursor: pointer;
+                font-size: 14px;
+                font-weight: bold;
+                color: white;
+            }
+            #btn-capture {
+                background: #4CAF50;
+            }
+            #btn-switch {
+                background: #2196F3;
+            }
+            #btn-cancel {
+                background: #f44336;
+            }
+            .btn-group button:hover {
+                opacity: 0.8;
+            }
+            #status {
+                font-size: 12px;
+                margin-top: 5px;
+                color: #666;
+            }
+        </style>
+    </head>
+    <body>
+        <video id="video" autoplay playsinline></video>
+        <canvas id="canvas" style="display:none;"></canvas>
+        <div class="btn-group">
+            <button id="btn-capture">📸 ถ่ายรูป</button>
+            <button id="btn-switch">🔄 สลับกล้อง</button>
+            <button id="btn-cancel">❌ ถ่ายใหม่</button>
+        </div>
+        <div id="status">กำลังเปิดกล้อง...</div>
+        
+        <script>
+            let currentStream = null;
+            let cameras = [];
+            let currentCameraIndex = -1;
+            let capturedImage = null;
+
+            // ฟังก์ชันค้นหากล้องทั้งหมด
+            async function getCameras() {
+                try {
+                    // ขอ permission ก่อน
+                    await navigator.mediaDevices.getUserMedia({ video: true, audio: false })
+                        .then(stream => {
+                            stream.getTracks().forEach(track => track.stop());
+                        });
+                    
+                    // ค้นหากล้องทั้งหมด
+                    const devices = await navigator.mediaDevices.enumerateDevices();
+                    cameras = devices.filter(device => device.kind === 'videoinput');
+                    
+                    console.log('พบกล้อง:', cameras);
+                    
+                    if (cameras.length === 0) {
+                        document.getElementById('status').textContent = '❌ ไม่พบกล้อง';
+                        return;
+                    }
+                    
+                    // เลือกกล้องหลังเป็นค่าเริ่มต้น (deviceId ที่มีคำว่า back/environment)
+                    currentCameraIndex = cameras.findIndex(camera => 
+                        camera.label.toLowerCase().includes('back') ||
+                        camera.label.toLowerCase().includes('environment') ||
+                        camera.label.toLowerCase().includes('หลัง')
+                    );
+                    
+                    // ถ้าไม่พบกล้องหลัง ให้ใช้กล้องแรก
+                    if (currentCameraIndex === -1) {
+                        currentCameraIndex = 0;
+                    }
+                    
+                    startCamera(currentCameraIndex);
+                    
+                } catch (err) {
+                    console.error('ไม่สามารถเข้าถึงกล้อง:', err);
+                    document.getElementById('status').textContent = '❌ ไม่สามารถเข้าถึงกล้อง';
+                    alert('ไม่สามารถเข้าถึงกล้อง: ' + err.message);
+                }
+            }
+
+            // ฟังก์ชันเปิดกล้องตาม index
+            async function startCamera(index) {
+                if (currentStream) {
+                    currentStream.getTracks().forEach(track => track.stop());
+                }
+                
+                document.getElementById('status').textContent = 'กำลังเปิดกล้อง...';
+                
+                try {
+                    const constraints = {
+                        video: {
+                            deviceId: { exact: cameras[index].deviceId },
+                            width: { ideal: 1280 },
+                            height: { ideal: 720 }
+                        },
+                        audio: false
+                    };
+                    
+                    currentStream = await navigator.mediaDevices.getUserMedia(constraints);
+                    
+                    const video = document.getElementById('video');
+                    video.srcObject = currentStream;
+                    await video.play();
+                    
+                    const cameraLabel = cameras[index].label || 'กล้อง ' + (index + 1);
+                    document.getElementById('status').textContent = '📷 ' + cameraLabel;
+                    
+                } catch (err) {
+                    console.error('ไม่สามารถเปิดกล้อง:', err);
+                    document.getElementById('status').textContent = '❌ ไม่สามารถเปิดกล้อง';
+                    
+                    // ถ้าเปิดกล้องที่เลือกไม่ได้ ให้ลองกล้องแรก
+                    if (index !== 0) {
+                        startCamera(0);
+                    } else {
+                        alert('ไม่สามารถเปิดกล้องได้: ' + err.message);
+                    }
+                }
+            }
+
+            // ปุ่มสลับกล้อง
+            document.getElementById('btn-switch').onclick = function() {
+                if (cameras.length <= 1) {
+                    alert('พบกล้องเพียงตัวเดียว');
+                    return;
+                }
+                
+                // สลับไปกล้องถัดไป
+                currentCameraIndex = (currentCameraIndex + 1) % cameras.length;
+                startCamera(currentCameraIndex);
+            };
+
+            // ปุ่มยกเลิก/ถ่ายใหม่
+            document.getElementById('btn-cancel').onclick = function() {
+                capturedImage = null;
+                document.getElementById('status').textContent = '🔄 พร้อมถ่ายใหม่';
+                parent.postMessage({type: 'camera-cancel'}, '*');
+            };
+
+            // ปุ่มถ่ายรูป
+            document.getElementById('btn-capture').onclick = function() {
+                const video = document.getElementById('video');
+                const canvas = document.getElementById('canvas');
+                
+                if (!video.videoWidth || !video.videoHeight) {
+                    alert('กล้องยังไม่พร้อม กรุณารอสักครู่');
+                    return;
+                }
+                
+                canvas.width = video.videoWidth;
+                canvas.height = video.videoHeight;
+                canvas.getContext('2d').drawImage(video, 0, 0);
+                capturedImage = canvas.toDataURL('image/png');
+                
+                document.getElementById('status').textContent = '✅ ถ่ายรูปแล้ว';
+                
+                parent.postMessage({
+                    type: 'camera-capture', 
+                    imageData: capturedImage
+                }, '*');
+            };
+
+            // เริ่มต้นค้นหาและเปิดกล้อง
+            getCameras();
+        </script>
+    </body>
+    </html>
+    """
+    
+    # แสดง iframe
+    components.html(camera_html, height=420)
+    
+    # สร้าง JavaScript listener ใน Streamlit เพื่อรับข้อมูล
+    listener_html = """
+    <script>
+        window.addEventListener('message', function(event) {
+            if (event.data.type === 'camera-capture') {
+                localStorage.setItem('capturedImage', event.data.imageData);
+                window.parent.postMessage({
+                    type: 'streamlit:setComponentValue',
+                    value: event.data.imageData
+                }, '*');
+            } else if (event.data.type === 'camera-cancel') {
+                localStorage.removeItem('capturedImage');
+                window.parent.postMessage({
+                    type: 'streamlit:setComponentValue',
+                    value: null
+                }, '*');
+            }
+        });
+    </script>
+    """
+    components.html(listener_html, height=0)
+    
+    return st.session_state.get("camera_image", None)
 # ... โค้ดที่เหลือทั้งหมดเหมือนเดิม ...
 
 client = genai.Client(api_key=GEMINI_KEY)
