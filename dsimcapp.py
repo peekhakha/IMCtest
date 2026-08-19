@@ -179,24 +179,21 @@ SYSTEM_INSTRUCTION = """
 """
 # ============================================================
 
-# บังคับเลือกกล้องหลังผ่าน CSS/JS Trick (ส่งผลกับเบราว์เซอร์ส่วนใหญ่)
-st.markdown(
-    """
-    <style>
-    /* บังคับ Video Stream ให้กระจายหรือสลับกล้องหากรองรับ */
-    video {
-        transform: scaleX(1) !important;
-    }
-    </style>
-    """,
-    unsafe_allow_html=True,
-)
 
-img = (
-    st.camera_input("ถ่ายรูป")
-    if method == "ถ่ายรูปจากกล้อง"
-    else (st.file_uploader("เลือกรูป") if method == "อัปโหลดไฟล์รูปภาพ" else None)
-)
+from streamlit_back_camera_input import back_camera_input
+
+# สลับการใช้งานตามเงื่อนไขเดิม
+if method == "ถ่ายรูปจากกล้อง":
+    # เรียกใช้ตัวนี้แทน st.camera_input (จะล็อกกล้องหลังอัตโนมัติ)
+    img = back_camera_input()
+elif method == "อัปโหลดไฟล์รูปภาพ":
+    img = st.file_uploader("เลือกรูป")
+else:
+    img = None
+
+# แสดงผลรูปที่ถ่ายได้
+if img:
+    st.image(img)
 
 if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
     with st.spinner("AI กำลังแกะ..."):
