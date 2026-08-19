@@ -184,8 +184,8 @@ from camera_input_live import camera_input_live
 
 img = None
 if method == "ถ่ายรูปจากกล้อง":
-    # facing_mode='environment' คือการสั่งให้เปิดกล้องหลังเป็นหลัก
-    image_data = camera_input_live(facing_mode="environment", key="camera")
+    # เรียกใช้โดยไม่ใส่ facing_mode
+    image_data = camera_input_live(key="camera")
     if image_data:
         img = image_data
 elif method == "อัปโหลดไฟล์รูปภาพ":
