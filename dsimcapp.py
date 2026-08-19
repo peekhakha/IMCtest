@@ -2,14 +2,33 @@ import calendar
 import datetime
 import json
 import re
+from typing import Optional
 from google import genai
 from PIL import Image
 from pydantic import BaseModel, Field
-from typing import Optional
 import streamlit as st
 from supabase import create_client
 
 st.set_page_config(page_title="IMC System", layout="wide")
+
+# CSS ปรับแต่งป้ายให้ขนาดเล็ก และดึงระยะห่างระหว่างแถวให้ชิดกัน
+st.markdown(
+    """
+    <style>
+    div[data-testid="stPills"] button {
+        padding: 2px 8px !important;
+        font-size: 12px !important;
+        min-height: unset !important;
+    }
+    div[data-testid="stPills"] {
+        margin-bottom: -12px !important;
+        margin-top: -8px !important;
+    }
+    </style>
+""",
+    unsafe_allow_html=True,
+)
+
 st.title("🏥 ระบบนำเข้าข้อมูลผู้ป่วย IMC เข้าคลาวด์")
 
 # ดึงค่าความลับผ่าน st.secrets
@@ -22,7 +41,13 @@ db = create_client(URL, KEY)
 
 if "s_ok" not in st.session_state:
     st.session_state.update(
-        s_ok=False, h_last="", payload={}, found_patient=None, curr_str="", imp_count=2, auto_search=""
+        s_ok=False,
+        h_last="",
+        payload={},
+        found_patient=None,
+        curr_str="",
+        imp_count=2,
+        auto_search="",
     )
 
 today = datetime.datetime.now().strftime("%d/%m/%Y")
@@ -108,14 +133,18 @@ chk_bi = (
 
 
 class PatientDataSchema(BaseModel):
-    id_num: str = Field(description="รหัสประจำตัวประชาชน 13 หลัก (ตัวเลขล้วน ไม่มีขีด)")
+    id_num: str = Field(
+        description="รหัสประจำตัวประชาชน 13 หลัก (ตัวเลขล้วน ไม่มีขีด)"
+    )
     name: str = Field(description="ชื่อ-สกุล รวมคำนำหน้าชื่อ")
     hn: Optional[str] = Field(None, description="หมายเลข HN หากพบ")
     rights: Optional[str] = Field(None, description="สิทธิการรักษา")
     bi0: str = Field(description="ค่า BI วันเข้า IMC (0-20)")
     bix: str = Field(description="ค่า BI ครั้งนี้ (0-20)")
     regist: str = Field(description="วันที่ลงทะเบียน DD/MM/YYYY")
-    clinical_note: Optional[str] = Field(None, description="หมายเหตุเพิ่มเติมหรือ Clinical Note หากพบในรูป")
+    clinical_note: Optional[str] = Field(
+        None, description="หมายเหตุเพิ่มเติมหรือ Clinical Note หากพบในรูป"
+    )
 
 
 # ============================================================
@@ -151,11 +180,16 @@ SYSTEM_INSTRUCTION = """
 # ============================================================
 
 
-img = (
-    st.camera_input("ถ่ายรูป")
-    if method == "ถ่ายรูปจากกล้อง"
-    else (st.file_uploader("เลือกรูป") if method == "อัปโหลดไฟล์รูปภาพ" else None)
-)
+from camera_input_live import camera_input_live
+
+img = None
+if method == "ถ่ายรูปจากกล้อง":
+    # facing_mode='environment' คือการสั่งให้เปิดกล้องหลังเป็นหลัก
+    image_data = camera_input_live(facing_mode="environment", key="camera")
+    if image_data:
+        img = image_data
+elif method == "อัปโหลดไฟล์รูปภาพ":
+    img = st.file_uploader("เลือกรูป")
 
 if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
     with st.spinner("AI กำลังแกะ..."):
@@ -183,7 +217,7 @@ if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
    - ส่งเป็น clinical_note
 
 โหมด: [{mode}]
-"""
+""",
                 ],
                 config={
                     "response_mime_type": "application/json",
@@ -209,19 +243,26 @@ if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
                         data_ai["id_num"] = ""
 
                 # ถ้ายังไม่มี id_num ให้ค้นหาจากข้อความ
-                if not data_ai.get("id_num") and hasattr(res, 'text'):
-                    match = re.search(r"(\d[\-\s]?\d{4}[\-\s]?\d{5}[\-\s]?\d{2}[\-\s]?\d)", res.text)
+                if not data_ai.get("id_num") and hasattr(res, "text"):
+                    match = re.search(
+                        r"(\d[\-\s]?\d{4}[\-\s]?\d{5}[\-\s]?\d{2}[\-\s]?\d)",
+                        res.text,
+                    )
                     if match:
                         cleaned = clean_id_number(match.group(1))
                         if cleaned:
                             data_ai["id_num"] = cleaned
-                            st.success(f"✅ พบเลขบัตรจากข้อความ: {cleaned}")
-                    
+                            st.success(
+                                f"✅ พบเลขบัตรจากข้อความ: {cleaned}"
+                            )
+
                     if not data_ai.get("id_num"):
                         match2 = re.search(r"(\d{13})", res.text)
                         if match2:
                             data_ai["id_num"] = match2.group(1)
-                            st.success(f"✅ พบเลขบัตร 13 หลักติดกัน: {data_ai['id_num']}")
+                            st.success(
+                                f"✅ พบเลขบัตร 13 หลักติดกัน: {data_ai['id_num']}"
+                            )
 
                 # ตั้งค่า regist
                 if "regist" not in data_ai or not data_ai["regist"]:
@@ -240,20 +281,22 @@ if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
                     "exp": data_ai.get("exp", ""),
                     "clinical_note": data_ai.get("clinical_note", ""),
                 }
-                
-                st.session_state.update(payload=payload_for_form, s_ok=False)
-                
+
+                st.session_state.update(
+                    payload=payload_for_form, s_ok=False
+                )
+
                 # สำหรับหน้า Follow-up
                 if not mode.startswith("ลงทะเบียน"):
                     if data_ai.get("id_num"):
                         st.session_state.auto_search = data_ai["id_num"]
                     elif data_ai.get("name"):
                         st.session_state.auto_search = data_ai["name"]
-                
+
                 # แสดงข้อมูลที่อ่านได้
                 with st.expander("📋 ข้อมูลที่อ่านได้", expanded=True):
                     st.json(payload_for_form)
-                
+
                 st.rerun()
             else:
                 st.error("❌ AI ไม่สามารถอ่านข้อมูลจากรูปภาพนี้ได้")
@@ -261,234 +304,440 @@ if img and st.button("🪄 ส่งให้ AI แกะข้อมูล"):
             st.error(f"❌ เกิดข้อผิดพลาด: {e}")
 
 
-def trigger_save(id_val, mode_str, bi0_val, bia_val, bix_val, table_name, data_payload, c_str):
+def trigger_save(
+    id_val, mode_str, bi0_val, bia_val, bix_val, table_name, data_payload, c_str
+):
     if not id_val.strip() or len(id_val.strip()) > 13:
         st.error("❌ ตรวจสอบรหัส ปชช.")
-    elif mode_str.startswith("ลงทะเบียน") and (not bi0_val.strip() or not chk_bi(bi0_val)):
+    elif mode_str.startswith("ลงทะเบียน") and (
+        not bi0_val.strip() or not chk_bi(bi0_val)
+    ):
         st.error("❌ กรอก BI วันเข้า IMC 0-20")
-    elif not mode_str.startswith("ลงทะเบียน") and (not bix_val.strip() or not chk_bi(bix_val)):
+    elif not mode_str.startswith("ลงทะเบียน") and (
+        not bix_val.strip() or not chk_bi(bix_val)
+    ):
         st.error("❌ กรอก BI ครั้งนี้ 0-20")
     else:
         if mode_str.startswith("ลงทะเบียน"):
             db.table(table_name).insert(data_payload).execute()
         else:
-            db.table("imc_patients").update(data_payload).eq("id", id_val.strip()).execute()
-            updated = db.table("imc_patients").select("*").eq("id", id_val.strip()).execute().data
+            db.table("imc_patients").update(data_payload).eq(
+                "id", id_val.strip()
+            ).execute()
+            updated = (
+                db.table("imc_patients")
+                .select("*")
+                .eq("id", id_val.strip())
+                .execute()
+                .data
+            )
             if updated:
                 st.session_state.found_patient = updated
         st.balloons()
-        st.session_state.update(s_ok=True, h_last=c_str, payload={}, curr_str=c_str)
+        st.session_state.update(
+            s_ok=True, h_last=c_str, payload={}, curr_str=c_str
+        )
         st.rerun()
+
 
 if method == "📝 กรอกข้อมูลเองด้วยตนเอง" or bool(p):
     if mode.startswith("ลงทะเบียน"):
         st.markdown("---")
         col1, col2 = st.columns(2)
-        
+
         st.subheader("📝 ฟอร์มลงทะเบียนผู้ป่วยใหม่")
-        id_num = col1.text_input("รหัส ปชช. (id):", p.get("id",""), max_chars=13)
-        name = col1.text_input("ชื่อ-สกุล:", p.get("name",""))
-        hn = col1.text_input("HN:", p.get("hn",""))
-        hos_dx = col1.text_input("รพ.วินิจฉัย IMC:", p.get("hos_dx",""))
-        hos_pt = col1.text_input("รพ. หลัก:", p.get("hos_pt",""))
-        rights = col1.selectbox("สิทธิการรักษา:", ["บัตรทอง", "เบิกตรง", "ประกันสังคม", "ชำระเงินเอง"], index=["บัตรทอง", "เบิกตรง", "ประกันสังคม", "ชำระเงินเอง"].index(p.get("rights", "บัตรทอง")) if p.get("rights") in ["บัตรทอง", "เบิกตรง", "ประกันสังคม", "ชำระเงินเอง"] else 0)
-            
-        dx = col2.selectbox("กลุ่มโรค:", ["Stroke", "TBI", "SCI", "Hip fracture", "อื่นๆ"])
-        
-        enable_imp = col2.toggle("♿ บันทึกข้อมูล Impairment (เพิ่มเติม)", value=False)
-        imp_choices = ["", "Swallowing problem", "Communication problem", "Cognitive and perception problem", "Bowel and bladder problem", "Mobility problem"]
-        
+        id_num = col1.text_input(
+            "รหัส ปชช. (id):", p.get("id", ""), max_chars=13
+        )
+        name = col1.text_input("ชื่อ-สกุล:", p.get("name", ""))
+        hn = col1.text_input("HN:", p.get("hn", ""))
+        hos_dx = col1.selectbox(
+            "รพ.วินิจฉัย IMC:",
+            ["น่าน", "ปัว", "เวียงสา"],
+            index=["น่าน", "ปัว", "เวียงสา"].index(p.get("hos_dx", "น่าน"))
+            if p.get("hos_dx") in ["น่าน", "ปัว", "เวียงสา"]
+            else 0,
+        )
+
+        # --- ส่วนของ hos_pt (ช่องกรอกข้อมูล + ป้ายช่วยเลือก 2 แถว) ---
+        if "input_hos_pt" not in st.session_state:
+            st.session_state.input_hos_pt = p.get("hos_pt", "")
+
+        hos_pt = col1.text_input(
+            "รพ. หลัก:",
+            value=st.session_state.input_hos_pt,
+            key="input_hos_pt",
+        )
+
+        hos_pt_options_row1 = [
+            "น่าน",
+            "ภูเพียง",
+            "ปัว",
+            "ท่าวังผา",
+            "เชียงกลาง",
+            "ทุ่งช้าง",
+            "สองแคว",
+            "เฉลิมพระเกียรติ",
+        ]
+        hos_pt_options_row2 = [
+            "บ่อเกลือ",
+            "เวียงสา",
+            "แม่จริม",
+            "สันติสุข",
+            "นาน้อย",
+            "นาหมื่น",
+            "บ้านหลวง",
+        ]
+
+        def set_hos_pt_r1():
+            val = st.session_state.get("pills_hos_r1")
+            if val:
+                st.session_state.input_hos_pt = val
+                st.session_state.pills_hos_r2 = None
+
+        def set_hos_pt_r2():
+            val = st.session_state.get("pills_hos_r2")
+            if val:
+                st.session_state.input_hos_pt = val
+                st.session_state.pills_hos_r1 = None
+
+        col1.pills(
+            "",
+            hos_pt_options_row1,
+            key="pills_hos_r1",
+            on_change=set_hos_pt_r1,
+            label_visibility="collapsed",
+        )
+        col1.pills(
+            "",
+            hos_pt_options_row2,
+            key="pills_hos_r2",
+            on_change=set_hos_pt_r2,
+            label_visibility="collapsed",
+        )
+        # --------------------------------------------------------
+
+        rights = col1.selectbox(
+            "สิทธิการรักษา:",
+            ["บัตรทอง", "เบิกตรง", "ประกันสังคม", "ชำระเงินเอง"],
+            index=["บัตรทอง", "เบิกตรง", "ประกันสังคม", "ชำระเงินเอง"].index(
+                p.get("rights", "บัตรทอง")
+            )
+            if p.get("rights")
+            in ["บัตรทอง", "เบิกตรง", "ประกันสังคม", "ชำระเงินเอง"]
+            else 0,
+        )
+
+        dx = col2.selectbox(
+            "กลุ่มโรค:", ["Stroke", "TBI", "SCI", "Hip fracture", "อื่นๆ"]
+        )
+
+        enable_imp = col2.toggle(
+            "♿ บันทึกข้อมูล Impairment (เพิ่มเติม)", value=False
+        )
+        imp_choices = [
+            "",
+            "Swallowing problem",
+            "Communication problem",
+            "Cognitive and perception problem",
+            "Bowel and bladder problem",
+            "Mobility problem",
+        ]
+
         imp1, imp2, imp3, imp4, imp5 = "", "", "", "", ""
         if enable_imp:
             col2.write("🩺 **ระบุ Impairment:**")
-            
+
             c_grid1 = col2.columns(2)
-            imp1 = c_grid1[0].selectbox("Impairment (1):", imp_choices, key="imp_1", index=0)
-            imp2 = c_grid1[1].selectbox("Impairment (2):", imp_choices, key="imp_2", index=0)
-            
+            imp1 = c_grid1[0].selectbox(
+                "Impairment (1):", imp_choices, key="imp_1", index=0
+            )
+            imp2 = c_grid1[1].selectbox(
+                "Impairment (2):", imp_choices, key="imp_2", index=0
+            )
+
             if st.session_state.imp_count >= 3:
                 c_grid2 = col2.columns(2)
-                imp3 = c_grid2[0].selectbox("Impairment (3):", imp_choices, key="imp_3", index=0)
+                imp3 = c_grid2[0].selectbox(
+                    "Impairment (3):", imp_choices, key="imp_3", index=0
+                )
                 if st.session_state.imp_count >= 4:
-                    imp4 = c_grid2[1].selectbox("Impairment (4):", imp_choices, key="imp_4", index=0)
+                    imp4 = c_grid2[1].selectbox(
+                        "Impairment (4):", imp_choices, key="imp_4", index=0
+                    )
             if st.session_state.imp_count >= 5:
                 c_grid3 = col2.columns(2)
-                imp5 = c_grid3[0].selectbox("Impairment (5):", imp_choices, key="imp_5", index=0)
-                
+                imp5 = c_grid3[0].selectbox(
+                    "Impairment (5):", imp_choices, key="imp_5", index=0
+                )
+
             if st.session_state.imp_count < 5:
-                if col2.button(f"➕ เพิ่มช่องกรอก Impairment ({st.session_state.imp_count + 1})", use_container_width=True):
+                if col2.button(
+                    f"➕ เพิ่มช่องกรอก Impairment ({st.session_state.imp_count + 1})",
+                    use_container_width=True,
+                ):
                     st.session_state.imp_count += 1
                     st.rerun()
 
         c_reg, c_reg_btn = col2.columns([2.5, 1])
-        
-        if 'widget_reg_date' not in st.session_state:
+
+        if "widget_reg_date" not in st.session_state:
             st.session_state.widget_reg_date = p.get("regist", today)
 
         def on_regist_date_change():
             st.session_state.my_reg_date = st.session_state.widget_reg_date
-            st.session_state.payload['regist'] = st.session_state.widget_reg_date
-            st.session_state.payload['exp'] = cal_exp(st.session_state.widget_reg_date)
-            st.session_state.widget_exp_date = cal_exp(st.session_state.widget_reg_date)
+            st.session_state.payload["regist"] = (
+                st.session_state.widget_reg_date
+            )
+            st.session_state.payload["exp"] = cal_exp(
+                st.session_state.widget_reg_date
+            )
+            st.session_state.widget_exp_date = cal_exp(
+                st.session_state.widget_reg_date
+            )
 
-        reg_date_input = c_reg.text_input("วันที่ลงทะเบียน:", key="widget_reg_date", on_change=on_regist_date_change)
-        
+        reg_date_input = c_reg.text_input(
+            "วันที่ลงทะเบียน:",
+            key="widget_reg_date",
+            on_change=on_regist_date_change,
+        )
+
         def set_reg_today():
             st.session_state.widget_reg_date = today
             st.session_state.my_reg_date = today
-            st.session_state.payload['regist'] = today
-            st.session_state.payload['exp'] = cal_exp(today)
+            st.session_state.payload["regist"] = today
+            st.session_state.payload["exp"] = cal_exp(today)
             st.session_state.widget_exp_date = cal_exp(today)
 
         c_reg_btn.button("📅 วันนี้", key="reg_today", on_click=set_reg_today)
 
-        if 'widget_exp_date' not in st.session_state:
-            st.session_state.widget_exp_date = p.get("exp", cal_exp(st.session_state.widget_reg_date))
+        if "widget_exp_date" not in st.session_state:
+            st.session_state.widget_exp_date = p.get(
+                "exp", cal_exp(st.session_state.widget_reg_date)
+            )
 
-        exp_date = col2.text_input("วันที่ครบกำหนด IMC (+6 เดือนอัตโนมัติ):", key="widget_exp_date")
-        bia = col2.text_input("BI แรกรับ [0-20]:", p.get("bia",""))
-        bi0 = col2.text_input("BI วันเข้า IMC [0-20]:", p.get("bi0",""))
-        
+        exp_date = col2.text_input(
+            "วันที่ครบกำหนด IMC (+6 เดือนอัตโนมัติ):", key="widget_exp_date"
+        )
+        bia = col2.text_input("BI แรกรับ [0-20]:", p.get("bia", ""))
+        bi0 = col2.text_input("BI วันเข้า IMC [0-20]:", p.get("bi0", ""))
+
         # 🟢 clinical_note อยู่ระหว่าง bi0 กับ recorder_name
-        clinical_note = col2.text_area("📝 Clinical Note (หมายเหตุเพิ่มเติม):", 
-                                       value=p.get("clinical_note", ""), 
-                                       height=80, 
-                                       placeholder="บันทึกข้อมูลเพิ่มเติมเกี่ยวกับผู้ป่วย...")
-        
-        recorder_name = col2.text_input("✍️ ชื่อผู้บันทึกข้อมูลเริ่มต้น:", value=p.get("recorder", ""))
-            
+        clinical_note = col2.text_area(
+            "📝 Clinical Note (หมายเหตุเพิ่มเติม):",
+            value=p.get("clinical_note", ""),
+            height=80,
+            placeholder="บันทึกข้อมูลเพิ่มเติมเกี่ยวกับผู้ป่วย...",
+        )
+
+        recorder_name = col2.text_input(
+            "✍️ ชื่อผู้บันทึกข้อมูลเริ่มต้น:", value=p.get("recorder", "")
+        )
+
         payload, table = {
-            "id": id_num, 
-            "name": name, 
-            "hn": hn, 
-            "hos_dx": hos_dx, 
-            "hos_pt": hos_pt, 
-            "regist": st.session_state.widget_reg_date, 
-            "exp": exp_date, 
-            "diagnosis": dx, 
-            "rights": rights, 
-            "impairment1": imp1, 
-            "impairment2": imp2, 
-            "impairment3": imp3, 
-            "impairment4": imp4, 
+            "id": id_num,
+            "name": name,
+            "hn": hn,
+            "hos_dx": hos_dx,
+            "hos_pt": hos_pt,
+            "regist": st.session_state.widget_reg_date,
+            "exp": exp_date,
+            "diagnosis": dx,
+            "rights": rights,
+            "impairment1": imp1,
+            "impairment2": imp2,
+            "impairment3": imp3,
+            "impairment4": imp4,
             "impairment5": imp5,
-            "recorder": recorder_name, 
-            "bia": bia, 
+            "recorder": recorder_name,
+            "bia": bia,
             "bi0": bi0,
-            "clinical_note": clinical_note
+            "clinical_note": clinical_note,
         }, "imc_patients"
-        
+
         curr_str = f"{id_num}{name}{hn}{dx}{rights}{imp1}{imp2}{imp3}{imp4}{imp5}{recorder_name}{exp_date}{bi0}{clinical_note}"
         st.session_state.curr_str = curr_str
-        
+
         col2.write("")
-        if col2.button("💾 บันทึกข้อมูลลง Cloud Database", key="btn_reg", use_container_width=True):
+        if col2.button(
+            "💾 บันทึกข้อมูลลง Cloud Database",
+            key="btn_reg",
+            use_container_width=True,
+        ):
             if not recorder_name.strip():
                 col2.error("❌ กรุณากรอกชื่อผู้บันทึกข้อมูลก่อนบันทึก")
             else:
-                trigger_save(id_num, mode, bi0, bia, "", table, payload, curr_str)
+                trigger_save(
+                    id_num, mode, bi0, bia, "", table, payload, curr_str
+                )
 
 if method == "📝 กรอกข้อมูลเองด้วยตนเอง" or bool(p):
     if not mode.startswith("ลงทะเบียน"):
         st.markdown("---")
         col1, col2 = st.columns(2)
         last_visit_index = 0
-        
+
         st.subheader("📝 บันทึกติดตามผลรายครั้ง (Follow-up)")
-        
+
         auto_search_value = st.session_state.get("auto_search", "")
         if auto_search_value:
-            search_query = col1.text_input("🔎 พิมพ์ชื่อ หรือ รหัส ปชช. เพื่อค้นหา:", value=auto_search_value)
+            search_query = col1.text_input(
+                "🔎 พิมพ์ชื่อ หรือ รหัส ปชช. เพื่อค้นหา:",
+                value=auto_search_value,
+            )
             st.session_state.auto_search = ""
         else:
-            search_query = col1.text_input("🔎 พิมพ์ชื่อ หรือ รหัส ปชช. เพื่อค้นหา:", value="")
-        
+            search_query = col1.text_input(
+                "🔎 พิมพ์ชื่อ หรือ รหัส ปชช. เพื่อค้นหา:", value=""
+            )
+
         id_num, history_rows = "", []
-        
+
         if search_query.strip():
             try:
                 q = search_query.strip()
-                res_sr = db.table("imc_patients").select("*").or_(f"name.ilike.%{q}%,id.ilike.%{q}%").execute().data
+                res_sr = (
+                    db.table("imc_patients")
+                    .select("*")
+                    .or_(f"name.ilike.%{q}%,id.ilike.%{q}%")
+                    .execute()
+                    .data
+                )
                 st.session_state.found_patient = res_sr if res_sr else []
                 if not res_sr:
                     st.warning(f"❌ ไม่พบผู้ป่วย: {q}")
             except Exception as e:
                 st.error(f"❌ ข้อผิดพลาดในการค้นหา: {e}")
                 st.session_state.found_patient = []
-                
+
         found_data = st.session_state.get("found_patient", [])
-        last_fu_text, last_bi_text, last_unit_text, last_note_text = "ยังไม่มีข้อมูล", "ยังไม่มีข้อมูล", "-", "-"
-        
+        last_fu_text, last_bi_text, last_unit_text, last_note_text = (
+            "ยังไม่มีข้อมูล",
+            "ยังไม่มีข้อมูล",
+            "-",
+            "-",
+        )
+
         if found_data:
             pt_options = {f"{i['name']} ({i['id']})": i for i in found_data}
             options = list(pt_options.keys())
             default_index = 0
             saved_id = st.session_state.get("selected_patient")
-            for i,opt in enumerate(options):
+            for i, opt in enumerate(options):
                 if pt_options[opt]["id"] == saved_id:
                     default_index = i
                     break
-            sel_found = col1.selectbox("🎯 ผลการค้นหา (เลือกรายชื่อ):", options, index=default_index)
+            sel_found = col1.selectbox(
+                "🎯 ผลการค้นหา (เลือกรายชื่อ):", options, index=default_index
+            )
             p_selected = pt_options[sel_found]
-            st.session_state.selected_patient = p_selected['id']
-            id_num = p_selected['id']
-            
+            st.session_state.selected_patient = p_selected["id"]
+            id_num = p_selected["id"]
+
+            # [แก้ไขข้อ 4] ใช้ clinical_note ในตารางประวัติแถวแรก
+            init_note = p_selected.get("clinical_note") or f"BI แรกรับ: {p_selected.get('bia', '-')}"
             history_rows.append({
-                "ครั้งที่": "วันเข้า IMC", "วันที่รับบริการ": p_selected.get("regist", "-"),
-                "คะแนน BI": p_selected.get("bi0", "-"), "หน่วยบริการ": "แรกเข้า IMC",
-                "Clinical Note": f"BI แรกรับ: {p_selected.get('bia', '-')}", "ผู้บันทึก": p_selected.get("recorder", "-")
+                "ครั้งที่": "วันเข้า IMC",
+                "วันที่รับบริการ": p_selected.get("regist", "-"),
+                "คะแนน BI": p_selected.get("bi0", "-"),
+                "หน่วยบริการ": p_selected.get("hos_dx", "-"),
+                "Clinical Note": p_selected.get("clinical_note", "-"),
+                "ผู้บันทึก": p_selected.get("recorder", "-"),
             })
-            
+
+            # [แก้ไขข้อ 1, 2, 3] ตั้งค่าเริ่มต้นกรณีที่ยังไม่มีการติดตามผล (total imc = 0)
+            init_reg_date = p_selected.get("regist", "-")
+            last_fu_text = f"{init_reg_date} (ลงทะเบียน IMC)" if init_reg_date != "-" else "-"
+            last_unit_text = p_selected.get("hos_dx") or p_selected.get("hos_dx", "-")
+            last_bi_text = p_selected.get("bia") or p_selected.get("bi0", "-")
+            last_note_text = p_selected.get("clinical_note", "-") or "-"
+
             for b_idx in range(1, 21):
                 if p_selected.get(f"bi{b_idx}") or p_selected.get(f"fu{b_idx}"):
                     last_visit_index = b_idx
-                    f_date, f_bi, f_unit, f_note, f_rec = p_selected.get(f"fu{b_idx}", "-"), p_selected.get(f"bi{b_idx}", "-"), p_selected.get(f"unit{b_idx}", "-"), p_selected.get(f"note{b_idx}", "-"), p_selected.get(f"fu_recorder{b_idx}", "-")
-                    history_rows.append({"ครั้งที่": f"#{b_idx}", "วันที่รับบริการ": f_date, "คะแนน BI": f_bi, "หน่วยบริการ": f_unit, "Clinical Note": f_note, "ผู้บันทึก": f_rec})
+                    f_date, f_bi, f_unit, f_note, f_rec = (
+                        p_selected.get(f"fu{b_idx}", "-"),
+                        p_selected.get(f"bi{b_idx}", "-"),
+                        p_selected.get(f"unit{b_idx}", "-"),
+                        p_selected.get(f"note{b_idx}", "-"),
+                        p_selected.get(f"fu_recorder{b_idx}", "-"),
+                    )
+                    history_rows.append({
+                        "ครั้งที่": f"#{b_idx}",
+                        "วันที่รับบริการ": f_date,
+                        "คะแนน BI": f_bi,
+                        "หน่วยบริการ": f_unit,
+                        "Clinical Note": f_note,
+                        "ผู้บันทึก": f_rec,
+                    })
+                    # หากมีข้อมูล follow-up จะ overwrite ค่าแสดงผลล่าสุด
                     last_bi_text = f"{f_bi} (ครั้งที่ {b_idx})"
                     last_fu_text = f"{f_date} (ครั้งที่ {b_idx})"
                     last_unit_text = f_unit
                     last_note_text = f_note
-            
-            exp_date_raw = p_selected.get('exp','-')
+
+            exp_date_raw = p_selected.get("exp", "-")
             countdown_text = get_remaining_time(exp_date_raw)
-            
+
             imp_list_saved = []
             for i in range(1, 6):
                 imp_val = p_selected.get(f"impairment{i}")
                 if imp_val and imp_val.strip():
                     imp_list_saved.append(imp_val)
-            
+
             detail = f"""
 ### 📋 รายละเอียดการรักษาก่อนหน้า
 
-- **กลุ่มโรคหลัก:** {p_selected.get('diagnosis','-')} | **สิทธิการรักษา:** {p_selected.get('rights','-')}
-- **วันที่เข้า IMC:** {p_selected.get('regist','-')}
+- **กลุ่มโรคหลัก:** {p_selected.get('diagnosis','-')} | **สิทธิการรักษา:** {p_selected.get('rights','-')}| **รพ.หลัก:** {p_selected.get('hos_pt','-')}
+- **วันที่เข้า IMC:** {p_selected.get('regist','-')} | **{p_selected.get('hos_dx','-')}**
 - **วันสิ้นสุดสิทธิ IMC:** {exp_date_raw}{countdown_text}
-- **บริการล่าสุดเมื่อ:** {last_fu_text} ({last_unit_text})
+- **บริการล่าสุดเมื่อ:** {last_fu_text} | ({last_unit_text})
 - **BI ล่าสุด:** {last_bi_text}
 """
 
             if imp_list_saved:
-                detail += f"\n- **Impairment:** {', '.join(imp_list_saved)}"
+                detail += (
+                    f"\n- **Impairment:** {', '.join(imp_list_saved)}"
+                )
 
             detail += f"\n- **Note เดิม:** {last_note_text}"
 
             col1.markdown(detail)
-            
+
         if history_rows:
             col1.markdown("---")
-            if col1.toggle("👁️ แสดงตารางประวัติการให้บริการย้อนหลัง", value=False):
-                col1.dataframe(history_rows, use_container_width=True, hide_index=True)
+            if col1.toggle(
+                "👁️ แสดงตารางประวัติการให้บริการย้อนหลัง", value=False
+            ):
+                col1.dataframe(
+                    history_rows, use_container_width=True, hide_index=True
+                )
         else:
-            if search_query.strip(): 
+            if search_query.strip():
                 col1.warning("❌ ไม่พบข้อมูลผู้ป่วย")
-            id_num = col1.text_input("🪪 หรือระบุรหัส ปชช. 13 หลักโดยตรง:", p.get("patient_id",""), max_chars=13)
+            id_num = col1.text_input(
+                "🪪 หรือระบุรหัส ปชช. 13 หลักโดยตรง:",
+                p.get("patient_id", ""),
+                max_chars=13,
+            )
 
         next_visit_index = last_visit_index + 1
-        times = col2.selectbox("ครั้งที่ให้บริการ (x):", [str(i) for i in range(1, 21)], index=(next_visit_index - 1) if 1 <= next_visit_index <= 20 else 0)
+        times = col2.selectbox(
+            "ครั้งที่ให้บริการ (x):",
+            [str(i) for i in range(1, 21)],
+            index=(next_visit_index - 1)
+            if 1 <= next_visit_index <= 20
+            else 0,
+        )
 
-        if found_data and str(times).isdigit() and 1 <= int(times) <= last_visit_index:
-            col2.warning(f"⚠️ ครั้งที่ {times} มีข้อมูลบันทึกไว้แล้ว การบันทึกซ้ำจะเขียนทับข้อมูลเดิม")
+        if (
+            found_data
+            and str(times).isdigit()
+            and 1 <= int(times) <= last_visit_index
+        ):
+            col2.warning(
+                f"⚠️ ครั้งที่ {times} มีข้อมูลบันทึกไว้แล้ว การบันทึกซ้ำจะเขียนทับข้อมูลเดิม"
+            )
 
         c_fud, c_fud_btn = col2.columns([2.5, 1])
         fu_key = f"fu_val_{times}"
@@ -498,46 +747,88 @@ if method == "📝 กรอกข้อมูลเองด้วยตนเ�
         def update_fu_date():
             st.session_state.payload[f"fu{times}"] = st.session_state[fu_key]
 
-        fu_date_val = c_fud.text_input(f"📅 วันที่รับบริการครั้งที่ {times} (fu{times}):", key=fu_key, on_change=update_fu_date)
-        
+        fu_date_val = c_fud.text_input(
+            f"📅 วันที่รับบริการครั้งที่ {times} (fu{times}):",
+            key=fu_key,
+            on_change=update_fu_date,
+        )
+
         def set_fu_today():
             st.session_state[fu_key] = today
             st.session_state.payload[f"fu{times}"] = today
 
         c_fud_btn.button("📅 วันนี้", key="fu_today", on_click=set_fu_today)
 
-        bi_val = col2.text_input(f"📊 คะแนน BI ครั้งที่ {times} [0-20] [bi{times}]:", value="", key=f"inp_bi_{times}")
-        unit_val = col2.text_input(f"🏢 หน่วยงานที่ให้บริการครั้งที่ {times} (unit{times}):", value="", key=f"inp_unit_{times}")
-        note_val = col2.text_area(f"📝 Clinical Note ครั้งที่ {times} (note{times}):", value="", height=65, key=f"inp_note_{times}")
-        fu_recorder = col2.text_input(f"✍️ ชื่อผู้บันทึกข้อมูลครั้งที่ {times} (fu_recorder{times}):", value="", key=f"inp_rec_{times}")
-        
+        bi_val = col2.text_input(
+            f"📊 คะแนน BI ครั้งที่ {times} [0-20] [bi{times}]:",
+            value="",
+            key=f"inp_bi_{times}",
+        )
+        unit_val = col2.text_input(
+            f"🏢 หน่วยงานที่ให้บริการครั้งที่ {times} (unit{times}):",
+            value="",
+            key=f"inp_unit_{times}",
+        )
+        note_val = col2.text_area(
+            f"📝 Clinical Note ครั้งที่ {times} (note{times}):",
+            value="",
+            height=65,
+            key=f"inp_note_{times}",
+        )
+        fu_recorder = col2.text_input(
+            f"✍️ ชื่อผู้บันทึกข้อมูลครั้งที่ {times} (fu_recorder{times}):",
+            value="",
+            key=f"inp_rec_{times}",
+        )
+
         payload = {
-            f"fu{times}": st.session_state.payload.get(f"fu{times}", fu_date_val), 
-            f"bi{times}": bi_val, 
-            f"unit{times}": unit_val, 
-            f"note{times}": note_val, 
+            f"fu{times}": st.session_state.payload.get(
+                f"fu{times}", fu_date_val
+            ),
+            f"bi{times}": bi_val,
+            f"unit{times}": unit_val,
+            f"note{times}": note_val,
             f"fu_recorder{times}": fu_recorder,
-            "ให้บริการครั้งที่": times, 
-            "visit_date": fu_date_val, 
-            "unit": unit_val, 
-            "clinical_note": note_val, 
-            "total": f"รวม ({times} ครั้ง)"
+            "ให้บริการครั้งที่": times,
+            "visit_date": fu_date_val,
+            "unit": unit_val,
+            "clinical_note": note_val,
+            "total": f"รวม ({times} ครั้ง)",
         }
-        curr_str = f"{id_num}{fu_date_val}{times}{bi_val}{unit_val}{fu_recorder}"
+        curr_str = (
+            f"{id_num}{fu_date_val}{times}{bi_val}{unit_val}{fu_recorder}"
+        )
         st.session_state.curr_str = curr_str
 
         col2.write("")
-        if col2.button("💾 บันทึกข้อมูลลง Cloud Database", key="btn_fu", use_container_width=True):
+        if col2.button(
+            "💾 บันทึกข้อมูลลง Cloud Database",
+            key="btn_fu",
+            use_container_width=True,
+        ):
             if not fu_recorder.strip():
                 col2.error("❌ กรุณากรอกชื่อผู้บันทึกข้อมูลก่อนกดยืนยัน")
             else:
-                trigger_save(id_num, mode, "", "", bi_val, "imc_patients", payload, curr_str)
+                trigger_save(
+                    id_num,
+                    mode,
+                    "",
+                    "",
+                    bi_val,
+                    "imc_patients",
+                    payload,
+                    curr_str,
+                )
 
 if st.session_state.s_ok:
     if mode.startswith("ลงทะเบียน"):
-        st.success("✅ บันทึกและจัดเก็บข้อมูลลงทะเบียนผู้ป่วยใหม่บนคลาวด์กลางอย่างถาวรสำเร็จ!")
+        st.success(
+            "✅ บันทึกและจัดเก็บข้อมูลลงทะเบียนผู้ป่วยใหม่บนคลาวด์กลางอย่างถาวรสำเร็จ!"
+        )
     else:
-        st.success("✅ บันทึกและจัดเก็บข้อมูลติดตามผล (Follow-up) บนคลาวด์สำเร็จเรียบร้อยแล้ว!")
+        st.success(
+            "✅ บันทึกและจัดเก็บข้อมูลติดตามผล (Follow-up) บนคลาวด์สำเร็จเรียบร้อยแล้ว!"
+        )
 
-if st.session_state.s_ok and st.session_state.h_last != st.session_state.curr_str: 
+if st.session_state.s_ok and st.session_state.h_last != st.session_state.curr_str:
     st.session_state.s_ok = False
